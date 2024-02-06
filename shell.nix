@@ -12,6 +12,7 @@
 
     pkgs.python3Packages.python-magic
     pkgs.python3Packages.alive-progress
+    pkgs.python3Packages.psutil
 
     # This execute some shell code to initialize a venv in $venvDir before
     # dropping into the shell

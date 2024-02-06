@@ -1,5 +1,5 @@
 # Built-in
-import argparse, tempfile, subprocess, re, difflib, os
+import argparse, tempfile, subprocess, re, difflib, os, concurrent.futures
 from pathlib import Path
 from enum import Enum
 
@@ -127,6 +127,9 @@ def main():
     ar = 'ar'
     target_objdump = args.objdump
 
+    """
+        Returns non-empty string on inconsistency, empty otherwise.
+    """
     def differs(f):
         def obj_differs(abs1, abs2):
             with new_tmp() as one, new_tmp() as two:
@@ -190,20 +193,20 @@ def main():
     # We can only compare files in both trees
     files = files1.intersection(files2)
     # Accumulate types of files we ignore, just for the user to audit
-    ignored_suffixes = set()
-    with alive_bar(len(files), spinner='classic') as bar:
+    cool_files = list(filter(is_cool, files))
+    ignored_suffixes = set([f.suffix for f in files if not is_cool(f)])
+    with alive_bar(len(cool_files), spinner='classic') as bar, \
+            concurrent.futures.ThreadPoolExecutor() as executor:
         errors = 0
-        for f in files:
-            if is_cool(f):
-                d = differs(f)
-                # Somehow this is 2x faster than "if differs: shortcut(true)"
-                if d:
-                    print(d)
-                shortcut_exit(d)
-                if d:
-                    errors += 1
-            else:
-                ignored_suffixes.add(f.suffix)
+        futures = (executor.submit(differs, f) for f in cool_files)
+        for future in concurrent.futures.as_completed(futures):
+            diff = future.result()
+            # Somehow this is 2x faster than "if differs: shortcut(true)"
+            if diff:
+                print(diff)
+            shortcut_exit(diff)
+            if diff:
+                errors += 1
             # Advance the progress bar
             bar()
 

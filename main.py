@@ -85,6 +85,7 @@ def contents_differ(path1, path2, all):
                     break
         return out
 
+EARLY_EXIT_STRING = "Problem found, terminating early. Use --all to keep going and get the long, full report."
 def main():
     # Let's not DDoS our machine
     os.nice(20)
@@ -113,7 +114,7 @@ def main():
     def shortcut_exit(condition):
         # Yes, capture args from the context
         if condition and not args.all:
-            print("Problem found, terminating early. Use --all to keep going and get the long, full report.")
+            print(EARLY_EXIT_STRING)
             exit(1)
 
     # Phase 1: checking for missing / extra files and dirs
@@ -144,7 +145,7 @@ def main():
 
         # Sanity checks
         if filter_type(magic.from_file(tree1 / f)) != filter_type(magic.from_file(tree2 / f)):
-            return f"Different types of {f}:\n{magic.from_file(tree1 / f)}\n{magic.from_file(tree2 / f)}"
+            return f"Different types of {f}:\n{magic.from_file(tree1 / f)}\n{magic.from_file(tree2 / f)}\n"
 
         if f.suffix in EXE_SUFFIXES:
             file_type = magic.from_file(tree1 / f)
@@ -154,10 +155,10 @@ def main():
                 if 'include' in str(f) or f.name == 'Makefile':
                     return contents_differ(tree1 / f, tree2 / f, args.all)
 
-                return f"Not an executable {f}: {file_type}"
+                return f"Not an executable {f}: {file_type}\n"
 
             if 'x86' not in file_type:
-                return f"Executable {f} unexpectedly doesn't target x86 or x64"
+                return f"Executable {f} unexpectedly doesn't target x86 or x64\n"
 
         elif f.suffix == '.a':
             with new_tmp() as one, new_tmp() as two:
@@ -177,7 +178,12 @@ def main():
                     return out
 
                 # Cute little recursion
-                return any(obj_differs(one / f, two / f) for f in relativized(one))
+                result_iter = (obj_differs(one / f, two / f) for f in relativized(one))
+                if args.all:
+                    return "".join(result_iter)
+                else:
+                    # First non-empty string
+                    return next(filter(bool, result_iter), "")
 
         elif f.suffix == '.o':
             return obj_differs(tree1 / f, tree2 / f)
@@ -195,20 +201,30 @@ def main():
     # Accumulate types of files we ignore, just for the user to audit
     cool_files = list(filter(is_cool, files))
     ignored_suffixes = set([f.suffix for f in files if not is_cool(f)])
+    # To avoid awkward prefixes and mixed outputs of parallel runs,
+    # we gather the diffs in a top-level string.
+    joined_diff = ""
     with alive_bar(len(cool_files), spinner='classic') as bar, \
             concurrent.futures.ThreadPoolExecutor() as executor:
         errors = 0
         futures = (executor.submit(differs, f) for f in cool_files)
         for future in concurrent.futures.as_completed(futures):
             diff = future.result()
-            # Somehow this is 2x faster than "if differs: shortcut(true)"
             if diff:
-                print(diff)
-            shortcut_exit(diff)
+                if not args.all:
+                    if not joined_diff:
+                        joined_diff += diff + EARLY_EXIT_STRING + "\n"
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    break
+                else:
+                    joined_diff += diff
             if diff:
                 errors += 1
             # Advance the progress bar
             bar()
+
+    if joined_diff:
+        print(joined_diff)
 
     print(f"Found {errors} discrepancies in file contents")
     print(f"Ignored suffixes: {ignored_suffixes}")

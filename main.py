@@ -49,12 +49,14 @@ def set_differs(one, two):
 EXE_SUFFIXES = ['', '.exe', '.lld', '.elf']
 # Other binary files we may care about
 BIN_SUFFIXES = ['.a', '.o']# '.dll', '.so']
-TXT_SIFFIXES = ['.s', '.S', '.c', '.cpp', '.h', '.txt', '.md', '.ld']
+# Files we can diff directly
+TXT_SUFFIXES = ['.s', '.S', '.c', '.cpp', '.h', '.txt', '.md', '.ld']
+
 """
     Is filename interesting for diff?
 """
 def is_cool(f):
-    if not f.suffix in BIN_SUFFIXES + TXT_SIFFIXES + EXE_SUFFIXES:
+    if not f.suffix in BIN_SUFFIXES + TXT_SUFFIXES + EXE_SUFFIXES:
         return False
     return True
 
@@ -81,6 +83,7 @@ def contents_differ(path1, path2, all):
                     break
                 does_differ = True
         return does_differ
+
 def main():
     # Let's not DDoS our machine
     os.nice(20)
@@ -181,13 +184,13 @@ def main():
             if obj_differs(tree1 / f, tree2 / f):
                 return True
 
-        else:
+        elif f.suffix in TXT_SUFFIXES:
             return contents_differ(tree1 / f, tree2 / f, args.all)
 
         return False
 
 
-    # Phase 2: checking contents. Silly and slow, because Python and libmagic.
+    # Phase 2: checking contents. This is the slow part.
     print("Checking file contents according to built-in rules")
     # We can only compare files in both trees
     files = files1.intersection(files2)

@@ -86,13 +86,21 @@ def contents_differ(path1, path2, all):
         return out
 
 EARLY_EXIT_STRING = "Problem found, terminating early. Use --all to keep going and get the long, full report."
+
 def main():
     # Let's not DDoS our machine
     os.nice(20)
     p = psutil.Process(os.getpid())
     p.ionice(psutil.IOPRIO_CLASS_IDLE)
 
-    parser = argparse.ArgumentParser(description="Description of your script.")
+    parser = argparse.ArgumentParser(description="""Find differences between embedded toolchain deliverables.
+                                     Useful for refactoring build automation. Checks the following:
+                                     - there are no extra files or directories in either tree
+                                     - human-readable text files are equal
+                                     - objects have equal disassembly
+                                     - libraries contain the same objects
+                                     - the same objects in those libraries have equal disassembly
+                                     - all executables are x86 or x64""")
 
     parser.add_argument("tree1", type=Path, help="A tree.")
     parser.add_argument("tree2", type=Path, help="Another tree.")

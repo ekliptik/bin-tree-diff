@@ -135,8 +135,8 @@ def main():
         def obj_differs(abs1, abs2):
             with new_tmp() as one, new_tmp() as two:
                 f_dis1, f_dis2 = f"{Path(one) / abs1.name}.dis", f"{Path(two) / abs2.name}.dis"
-                r(f"{target_objdump} -dr {abs1.name} > {f_dis1}", cwd=abs1.parent, shell=True)
-                r(f"{target_objdump} -dr {abs2.name} > {f_dis2}", cwd=abs2.parent, shell=True)
+                r(f"{target_objdump} -Dr {abs1.name} > {f_dis1}", cwd=abs1.parent, shell=True)
+                r(f"{target_objdump} -Dr {abs2.name} > {f_dis2}", cwd=abs2.parent, shell=True)
                 return contents_differ(Path(one) / f_dis1, Path(two) / f_dis2, args.all)
 
 

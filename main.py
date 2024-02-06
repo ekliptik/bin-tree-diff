@@ -1,9 +1,11 @@
-import argparse, tempfile, subprocess, re, difflib, os, psutil
+# Built-in
+import argparse, tempfile, subprocess, re, difflib, os
 from pathlib import Path
 from enum import Enum
 
+# External
+import magic, psutil
 from alive_progress import alive_bar
-import magic
 
 # Short-hand for a function like mkdtemp
 new_tmp = tempfile.TemporaryDirectory
@@ -65,24 +67,23 @@ def is_cool(f):
 """
 def contents_differ(path1, path2, all):
     with open(path1, 'r') as file1, open(path2, 'r') as file2:
+        out = ""
         # Get the diff
         differ = difflib.Differ()
         diff = list(differ.compare(file1.readlines(), file2.readlines()))
-        does_differ = False
         lines_printed = 0
 
         # Print modified lines only
         for diff_line in diff:
             if diff_line[0] == '+' or diff_line[0] == '-':
                 if not lines_printed:
-                    print(f"Object {file1.name} differs:")
-                print(diff_line.rstrip())
+                    out += f"Object {file1.name} differs:\n"
+                out += diff_line
                 lines_printed += 1
                 if lines_printed > 30 and not all:
-                    print("..etc. Diff has been shortened to save screen space. Use --all to get the full diff.")
+                    out += "..etc. Diff has been shortened to save screen space. Use --all to get the full diff."
                     break
-                does_differ = True
-        return does_differ
+        return out
 
 def main():
     # Let's not DDoS our machine
@@ -140,8 +141,7 @@ def main():
 
         # Sanity checks
         if filter_type(magic.from_file(tree1 / f)) != filter_type(magic.from_file(tree2 / f)):
-            print(f"Different types of {f}:\n{magic.from_file(tree1 / f)}\n{magic.from_file(tree2 / f)}")
-            return True
+            return f"Different types of {f}:\n{magic.from_file(tree1 / f)}\n{magic.from_file(tree2 / f)}"
 
         if f.suffix in EXE_SUFFIXES:
             file_type = magic.from_file(tree1 / f)
@@ -151,15 +151,11 @@ def main():
                 if 'include' in str(f) or f.name == 'Makefile':
                     return contents_differ(tree1 / f, tree2 / f, args.all)
 
-                print(f"Not an executable {f}: {file_type}")
-                return True
+                return f"Not an executable {f}: {file_type}"
 
             if 'x86' not in file_type:
-                print(f"Executable {f} unexpectedly doesn't target x86 or x64")
-                return True
-            # with new_tmp() as one, new_tmp() as two:
-            #     r(f"{host_objdump} -dr {tree1 / f} > {one / f}.dis", cwd=one, shell=True)
-            #     r(f"{host_objdump} -dr {tree2 / f} > {two / f}.dis", cwd=two, shell=True)
+                return f"Executable {f} unexpectedly doesn't target x86 or x64"
+
         elif f.suffix == '.a':
             with new_tmp() as one, new_tmp() as two:
                 r([ar, 'x', tree1 / f], cwd = one)
@@ -169,25 +165,24 @@ def main():
                 relativized = lambda dir: set(map(lambda x: x.relative_to(dir), Path(dir).iterdir()))
 
                 if relativized(one) != relativized(two):
-                    print(f"In archive {f}:")
+                    out = ""
+                    out += f"In archive {f}:\n"
                     for obj in relativized(one) - relativized(two):
-                        print(f"- {obj}")
+                        out += f"- {obj}\n"
                     for obj in relativized(two) - relativized(one):
-                        print(f"+ {obj}")
-                    return True
+                        out += f"+ {obj}\n"
+                    return out
 
                 # Cute little recursion
-                if any(obj_differs(one / f, two / f) for f in relativized(one)):
-                    return True
+                return any(obj_differs(one / f, two / f) for f in relativized(one))
 
         elif f.suffix == '.o':
-            if obj_differs(tree1 / f, tree2 / f):
-                return True
+            return obj_differs(tree1 / f, tree2 / f)
 
         elif f.suffix in TXT_SUFFIXES:
             return contents_differ(tree1 / f, tree2 / f, args.all)
 
-        return False
+        return None
 
 
     # Phase 2: checking contents. This is the slow part.
@@ -202,6 +197,8 @@ def main():
             if is_cool(f):
                 d = differs(f)
                 # Somehow this is 2x faster than "if differs: shortcut(true)"
+                if d:
+                    print(d)
                 shortcut_exit(d)
                 if d:
                     errors += 1

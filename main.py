@@ -65,19 +65,20 @@ def is_cool(f):
 """
     Print the diff of two files
 """
-def contents_differ(path1, path2, all):
-    with open(path1, 'r') as file1, open(path2, 'r') as file2:
+def contents_differ(dir1, file1, dir2, file2, all):
+    path1, path2 = dir1 / file1, dir2 / file2
+    with open(path1, 'r') as f1, open(path2, 'r') as f2:
         out = ""
         # Get the diff
         differ = difflib.Differ()
-        diff = list(differ.compare(file1.readlines(), file2.readlines()))
+        diff = list(differ.compare(f1.readlines(), f2.readlines()))
         lines_printed = 0
 
         # Print modified lines only
-        for diff_line in diff:
+        for line_idx, diff_line in enumerate(diff):
             if diff_line[0] == '+' or diff_line[0] == '-':
                 if not lines_printed:
-                    out += f"Object {file1.name} differs:\n"
+                    out += f"File {Path(file1).name} differs from {Path(file2).name} from line {line_idx}:\n"
                 out += diff_line
                 lines_printed += 1
                 if lines_printed > 30 and not all:
@@ -106,6 +107,7 @@ def main():
     parser.add_argument("tree2", type=Path, help="Another tree.")
     parser.add_argument("--objdump", type=Path, default=Path("llvm-objdump"), help="Path to target objdump.")
     parser.add_argument("--all", action="store_true", help="Continue when problems are found.")
+    parser.add_argument("--contents-only", action="store_true", help="Ignore extra files and directories and only compare contants.")
 
     args = parser.parse_args()
 
@@ -126,12 +128,12 @@ def main():
             exit(1)
 
     # Phase 1: checking for missing / extra files and dirs
+    if not args.contents_only:
+        print(f"dirs1 = dirs2? {dirs1 == dirs2}")
+        shortcut_exit(set_differs(dirs1, dirs2))
 
-    print(f"dirs1 = dirs2? {dirs1 == dirs2}")
-    shortcut_exit(set_differs(dirs1, dirs2))
-
-    print(f"files1 = files2? {files1 == files2}")
-    shortcut_exit(set_differs(files1, files2))
+        print(f"files1 = files2? {files1 == files2}")
+        shortcut_exit(set_differs(files1, files2))
 
     ar = 'ar'
     target_objdump = args.objdump
@@ -145,7 +147,7 @@ def main():
                 f_dis1, f_dis2 = f"{Path(one) / abs1.name}.dis", f"{Path(two) / abs2.name}.dis"
                 r(f"{target_objdump} -Dr {abs1.name} > {f_dis1}", cwd=abs1.parent, shell=True)
                 r(f"{target_objdump} -Dr {abs2.name} > {f_dis2}", cwd=abs2.parent, shell=True)
-                return contents_differ(Path(one) / f_dis1, Path(two) / f_dis2, args.all)
+                return contents_differ(Path(one), f_dis1, Path(two), f_dis2, args.all)
 
 
         # This differs for rebuilt binaries
@@ -161,7 +163,7 @@ def main():
             if 'executable' not in file_type:
                 # Makefiles and some standard headers don't have a suffix. This is ok
                 if 'include' in str(f) or f.name == 'Makefile':
-                    return contents_differ(tree1 / f, tree2 / f, args.all)
+                    return contents_differ(tree1, f, tree2, f, args.all)
 
                 return f"Not an executable {f}: {file_type}\n"
 
@@ -188,16 +190,18 @@ def main():
                 # Cute little recursion
                 result_iter = (obj_differs(one / f, two / f) for f in relativized(one))
                 if args.all:
-                    return "".join(result_iter)
+                    ret = "".join(result_iter)
                 else:
                     # First non-empty string
-                    return next(filter(bool, result_iter), "")
+                    ret = next(filter(bool, result_iter), "")
+
+                return f"In archive {f}:\n" + ret
 
         elif f.suffix == '.o':
             return obj_differs(tree1 / f, tree2 / f)
 
         elif f.suffix in TXT_SUFFIXES:
-            return contents_differ(tree1 / f, tree2 / f, args.all)
+            return contents_differ(tree1, f, tree2, f, args.all)
 
         return None
 
